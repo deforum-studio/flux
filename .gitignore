@@ -1,0 +1,6 @@
+.venv
+_version.py
+flux.egg-info
+__pycache__
+output/
+*.log

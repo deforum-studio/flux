@@ -104,7 +104,7 @@ def print_load_warning(missing: list[str], unexpected: list[str]) -> None:
 
 def load_flow_model(name: str, device: str | torch.device = "cuda", hf_download: bool = True):
     # Loading Flux
-    print("Init model")
+    # print("Init model")
     ckpt_path = configs[name].ckpt_path
     if (
         ckpt_path is None
@@ -118,7 +118,7 @@ def load_flow_model(name: str, device: str | torch.device = "cuda", hf_download:
         model = Flux(configs[name].params).to(torch.bfloat16)
 
     if ckpt_path is not None:
-        print("Loading checkpoint")
+        # print("Loading checkpoint")
         # load_sft doesn't support torch.device
         sd = load_sft(ckpt_path, device=str(device))
         missing, unexpected = model.load_state_dict(sd, strict=False, assign=True)
@@ -146,7 +146,7 @@ def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = 
         ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_ae)
 
     # Loading the autoencoder
-    print("Init AE")
+    # print("Init AE")
     with torch.device("meta" if ckpt_path is not None else device):
         ae = AutoEncoder(configs[name].ae_params)
 
