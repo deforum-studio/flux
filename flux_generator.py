@@ -3,14 +3,22 @@ import time
 
 import torch
 from loguru import logger
-from torchvision.io import write_jpeg
+from torchvision.io import write_jpeg, read_image
 
 from flux.cli import SamplingOptions
 from flux.sampling import denoise, get_noise, get_schedule, prepare, unpack
 from flux.util import load_ae, load_clip, load_flow_model, load_t5
 
+def load_image_to_tensor(image_path):
+    image = read_image(image_path)
+    image = image.float() / 255.0
+    image = (image * 2) - 1
+    return image.unsqueeze(0)
 
 def save_image_tensor(image_tensor, file_path, quality=75):
+    image_tensor = image_tensor.clamp(-1, 1)
+    image_tensor = image_tensor[0].permute(1, 2, 0)
+    image_tensor = image_tensor.squeeze(0)
     image_tensor = (image_tensor.cpu().clamp(-1, 1) + 1) * 127.5
     image_tensor = image_tensor.to(torch.uint8)
     write_jpeg(image_tensor.permute(2, 0, 1), file_path, quality=quality)
@@ -35,9 +43,10 @@ class FluxGenerator:
         logger.info("Loading NSFW classifier")
 
     @torch.inference_mode()
-    def generate(self, prompt, width=1360, height=768, num_steps=50, guidance=3.5, seed=None):
+    def generate(self, prompt, image=None, latent=None, width=1360, height=768, steps=50, strength=0.75, guidance=3.5, seed=None):
+        
         logger.info(f"Starting image generation for prompt: '{prompt}'")
-
+        
         if seed is None:
             seed = torch.randint(0, 2**32 - 1, (1,)).item()
         logger.info(f"Using seed: {seed}")
@@ -46,7 +55,7 @@ class FluxGenerator:
             prompt=prompt,
             width=width,
             height=height,
-            num_steps=num_steps,
+            num_steps=steps,
             guidance=guidance,
             seed=seed,
         )
@@ -67,6 +76,27 @@ class FluxGenerator:
             (x.shape[-1] * x.shape[-2]) // 4,
             shift=(not self.is_schnell),
         )
+
+        # TODO implement latent logic
+        # init image logic
+        if image is not None:
+            if isinstance(image, str):
+                image = load_image_to_tensor(image)
+                image = torch.nn.functional.interpolate(image, (opts.height, opts.width))
+            if self.offload:
+                logger.info("Moving autoencoder decoder to device")
+                self.ae.encoder.to(self.device)
+            # ensure image is on device
+            image = self.ae.encode(image.to(self.device))
+            if self.offload:
+                logger.info("Moving autoencoder decoder to cpu")
+                self.ae = self.ae.cpu()
+                torch.cuda.empty_cache()
+            # noise image
+            t_idx = int((1 - strength) * opts.num_steps)
+            t = timesteps[t_idx]
+            timesteps = timesteps[t_idx:]
+            x = t * x + (1.0 - t) * image.to(x.dtype)
 
         if self.offload:
             logger.info("Moving T5 and CLIP models to device")
@@ -101,30 +131,30 @@ class FluxGenerator:
             self.ae.decoder.cpu()
             torch.cuda.empty_cache()
 
-        x = x.clamp(-1, 1)
-        x = x.float()
-        x = x[0].permute(1, 2, 0)
-
-        return x
+        return x.float()
 
 
 if __name__ == "__main__":
     logger.add("flux_generator.log", rotation="1 day")
 
     # input
-    generator = FluxGenerator("flux-dev", device="cuda", offload=False)
-    prompt = "a photo of a forest with mist swirling around the tree trunks"
-
-    # generation
-    start_time = time.time()
-    img = generator.generate(prompt)
-    end_time = time.time()
-    logger.info(f"Total time for image generation: {end_time - start_time:.2f} seconds")
-
-    # Save the generated image
+    generator = FluxGenerator("flux-schnell", device="cuda", offload=False)
+    gen_prompt = "black forest"
+    init = None
+    max_frames = 100
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "generated_image.jpg")
-    save_image_tensor(img, output_path)
 
-    logger.info(f"Image saved in {output_dir} ({end_time - start_time:.4f} seconds)")
+    for i in range(max_frames):
+        # generation
+        start_time = time.time()
+        img = generator.generate(gen_prompt,image=init,steps=4)
+        end_time = time.time()
+        logger.info(f"Total time for image generation: {end_time - start_time:.2f} seconds")
+
+        # Save the generated image
+        output_path = os.path.join(output_dir, f"generated_image_{i:05d}.jpg")
+        save_image_tensor(img, output_path)
+        init = img
+
+        logger.info(f"Image saved in {output_dir} ({end_time - start_time:.4f} seconds)")
