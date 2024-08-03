@@ -2,6 +2,7 @@ import math
 from typing import Callable
 
 import torch
+from tqdm import tqdm
 from einops import rearrange, repeat
 from torch import Tensor
 
@@ -108,7 +109,11 @@ def denoise(
 ):
     # this is ignored for schnell
     guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
-    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
+    
+    # Create a tqdm progress bar
+    pbar = tqdm(zip(timesteps[:-1], timesteps[1:]), total=len(timesteps)-1, desc="Denoising")
+    
+    for t_curr, t_prev in pbar:
         t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
         pred = model(
             img=img,
@@ -121,6 +126,9 @@ def denoise(
         )
 
         img = img + (t_prev - t_curr) * pred
+        
+        # Update progress bar description
+        pbar.set_description(f"Denoising (t={t_curr:.4f})")
 
     return img
 

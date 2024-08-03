@@ -148,7 +148,7 @@ if __name__ == "__main__":
     for i in range(max_frames):
         # generation
         start_time = time.time()
-        img = generator.generate(gen_prompt,image=init,steps=4)
+        img = generator.generate(gen_prompt,image=init,steps=4,strength=0.5)
         end_time = time.time()
         logger.info(f"Total time for image generation: {end_time - start_time:.2f} seconds")
 
