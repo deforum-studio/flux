@@ -61,7 +61,7 @@ class FluxGenerator:
         )
 
         logger.info("Generating initial noise")
-        x = get_noise(
+        noise = get_noise(
             1,
             opts.height,
             opts.width,
@@ -73,7 +73,7 @@ class FluxGenerator:
         logger.info("Getting schedule")
         timesteps = get_schedule(
             opts.num_steps,
-            (x.shape[-1] * x.shape[-2]) // 4,
+            (noise.shape[-1] * noise.shape[-2]) // 4,
             shift=(not self.is_schnell),
         )
 
@@ -87,22 +87,24 @@ class FluxGenerator:
                 logger.info("Moving autoencoder decoder to device")
                 self.ae.encoder.to(self.device)
             # ensure image is on device
-            image = self.ae.encode(image.to(self.device))
+            latent = self.ae.encode(image.to(self.device))
             if self.offload:
                 logger.info("Moving autoencoder decoder to cpu")
                 self.ae = self.ae.cpu()
                 torch.cuda.empty_cache()
+
+        if latent is not None:
             # noise image
             t_idx = int((1 - strength) * opts.num_steps)
             t = timesteps[t_idx]
             timesteps = timesteps[t_idx:]
-            x = t * x + (1.0 - t) * image.to(x.dtype)
+            noise = t * noise + (1.0 - t) * latent.to(noise.dtype)
 
         if self.offload:
             logger.info("Moving T5 and CLIP models to device")
             self.t5, self.clip = self.t5.to(self.device), self.clip.to(self.device)
         logger.info("Preparing input")
-        inp = prepare(t5=self.t5, clip=self.clip, img=x, prompt=opts.prompt)
+        inp = prepare(t5=self.t5, clip=self.clip, img=noise, prompt=opts.prompt)
 
         if self.offload:
             logger.info("Moving T5 and CLIP models back to CPU")
@@ -112,26 +114,26 @@ class FluxGenerator:
             self.model = self.model.to(self.device)
 
         logger.info("Running denoising process")
-        x = denoise(self.model, **inp, timesteps=timesteps, guidance=opts.guidance)
+        denoised_latent = denoise(self.model, **inp, timesteps=timesteps, guidance=opts.guidance)
 
         if self.offload:
             logger.info("Moving flow model back to CPU")
             self.model.cpu()
             torch.cuda.empty_cache()
             logger.info("Moving autoencoder decoder to device")
-            self.ae.decoder.to(x.device)
+            self.ae.decoder.to(denoised_latent.device)
 
         logger.info("Unpacking and decoding image")
-        x = unpack(x.float(), opts.height, opts.width)
+        denoised_latent = unpack(denoised_latent.float(), opts.height, opts.width)
         with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
-            x = self.ae.decode(x)
+            image = self.ae.decode(denoised_latent)
 
         if self.offload:
             logger.info("Moving autoencoder decoder back to CPU")
             self.ae.decoder.cpu()
             torch.cuda.empty_cache()
 
-        return x.float()
+        return image.float(), denoised_latent
 
 
 if __name__ == "__main__":
@@ -148,13 +150,13 @@ if __name__ == "__main__":
     for i in range(max_frames):
         # generation
         start_time = time.time()
-        img = generator.generate(gen_prompt,image=init,steps=4,strength=0.5)
+        img, latent = generator.generate(gen_prompt,latent=init,steps=4,strength=0.5)
         end_time = time.time()
         logger.info(f"Total time for image generation: {end_time - start_time:.2f} seconds")
 
         # Save the generated image
         output_path = os.path.join(output_dir, f"generated_image_{i:05d}.jpg")
         save_image_tensor(img, output_path)
-        init = img
+        init = latent
 
         logger.info(f"Image saved in {output_dir} ({end_time - start_time:.4f} seconds)")
