@@ -40,7 +40,6 @@ class FluxGenerator:
         self.model = load_flow_model(model_name, device="cpu" if offload else self.device)
         logger.info("Loading autoencoder")
         self.ae = load_ae(model_name, device="cpu" if offload else self.device)
-        logger.info("Loading NSFW classifier")
 
     @torch.inference_mode()
     def generate(self, prompt, image=None, latent=None, inp=None, width=1360, height=768, steps=50, strength=0.75, guidance=3.5, seed=None):
