@@ -43,7 +43,7 @@ class FluxGenerator:
         logger.info("Loading NSFW classifier")
 
     @torch.inference_mode()
-    def generate(self, prompt, image=None, latent=None, width=1360, height=768, steps=50, strength=0.75, guidance=3.5, seed=None):
+    def generate(self, prompt, image=None, latent=None, inp=None, width=1360, height=768, steps=50, strength=0.75, guidance=3.5, seed=None):
         
         logger.info(f"Starting image generation for prompt: '{prompt}'")
         
@@ -100,6 +100,7 @@ class FluxGenerator:
             timesteps = timesteps[t_idx:]
             noise = t * noise + (1.0 - t) * latent.to(noise.dtype)
 
+        
         if self.offload:
             logger.info("Moving T5 and CLIP models to device")
             self.t5, self.clip = self.t5.to(self.device), self.clip.to(self.device)
@@ -150,7 +151,7 @@ if __name__ == "__main__":
     for i in range(max_frames):
         # generation
         start_time = time.time()
-        img, latent = generator.generate(gen_prompt,latent=init,steps=4,strength=0.5)
+        img, latent = generator.generate(gen_prompt,latent=init,steps=4,strength=0.5,seed=1)
         end_time = time.time()
         logger.info(f"Total time for image generation: {end_time - start_time:.2f} seconds")
 

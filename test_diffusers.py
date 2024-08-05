@@ -17,10 +17,10 @@ for i in range(max_frames):
         image=image,
         prompt=prompt,
         guidance_scale=3,
-        strength=0.2,
-        height=512,
-        width=512,
-        num_inference_steps=28,
+        strength=0.1,
+        height=768,
+        width=1344,
+        num_inference_steps=50,
         max_sequence_length=256,
     ).images[0]
 
